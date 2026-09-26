@@ -119,6 +119,14 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "sound_volume"):
                 load_config(path)
 
+    def test_default_poll_interval_is_sixty_seconds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_config(directory)
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            del raw["poll_seconds"]
+            path.write_text(json.dumps(raw), encoding="utf-8")
+            self.assertEqual(load_config(path).poll_seconds, 60)
+
 
 class FakeResponse:
     def __init__(self, status, payload=None):

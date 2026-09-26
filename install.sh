@@ -25,7 +25,7 @@ fi
 default_room_ids=""
 default_start_hour="4"
 default_end_hour="9"
-default_poll_seconds="30"
+default_poll_seconds="60"
 existing_config="$config_dir/config.json"
 if [[ -f "$existing_config" ]]; then
   IFS='|' read -r \
@@ -42,11 +42,11 @@ try:
         room_ids,
         config.get("start_hour", 4),
         config.get("end_hour", 9),
-        config.get("poll_seconds", 30),
+        config.get("poll_seconds", 60),
         sep="|",
     )
 except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-    print("", 4, 9, 30, sep="|")
+    print("", 4, 9, 60, sep="|")
 PY
   )
 fi

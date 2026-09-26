@@ -96,7 +96,7 @@ def load_config(path: Path) -> Config:
         raise ValueError("room_ids must not be empty")
     start_hour = int(raw.get("start_hour", 4))
     end_hour = int(raw.get("end_hour", 9))
-    poll_seconds = int(raw.get("poll_seconds", 30))
+    poll_seconds = int(raw.get("poll_seconds", 60))
     if not 0 <= start_hour <= 23 or not 0 <= end_hour <= 23:
         raise ValueError("start_hour and end_hour must be between 0 and 23")
     if poll_seconds < 15:

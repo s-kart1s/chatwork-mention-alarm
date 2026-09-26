@@ -66,7 +66,7 @@ cd chatwork-mention-alarm
   "room_ids": [123456789],
   "start_hour": 4,
   "end_hour": 9,
-  "poll_seconds": 30,
+  "poll_seconds": 60,
   "sound_path": "/System/Library/Sounds/Sosumi.aiff",
   "sound_volume": 2.0
 }
