@@ -29,7 +29,21 @@ Macがスリープしている間は監視できません。画面の消灯や�
 
 ## インストール
 
-Chatworkの利用者名メニューから「サービス連携」→「APIトークン」を開き、トークンをコピーします。その後、ターミナルで以下を実行します。
+次の手順でルームIDとAPIトークンを確認します。画像内のルームID、利用者名、APIトークンはすべて公開用のサンプルです。
+
+1. 監視するルームをブラウザで開き、URLの `rid` に続く数字を確認します。
+
+   ![ChatworkのURLからルームIDを確認](docs/images/setup-room-id-sample.png)
+
+2. Chatworkの利用者名メニューから「サービス連携」を開きます。
+
+   ![Chatworkの利用者名メニューからサービス連携を開く](docs/images/setup-service-menu-sample.png)
+
+3. 「APIトークン」を開き、表示されたトークンをコピーします。
+
+   ![ChatworkのAPIトークン画面](docs/images/setup-api-token-sample.png)
+
+その後、ターミナルで以下を実行します。
 
 ```sh
 git clone https://github.com/s-kart1s/chatwork-mention-alarm.git
