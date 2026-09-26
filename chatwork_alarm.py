@@ -244,7 +244,15 @@ def configure_logging(log_path: Path, foreground: bool) -> None:
     )
 
 
-def run(config: Config, state_path: Path, *, once: bool = False) -> None:
+def check_connection(config: Config) -> None:
+    client = ChatworkClient(read_token())
+    client.me()
+    for room_id in config.room_ids:
+        client.recent_messages(room_id)
+    logging.info("Connection check succeeded for %s room(s)", len(config.room_ids))
+
+
+def run(config: Config, state_path: Path) -> None:
     token = read_token()
     client = ChatworkClient(token)
     profile = client.me()
@@ -280,8 +288,6 @@ def run(config: Config, state_path: Path, *, once: bool = False) -> None:
                         message, config.start_hour, config.end_hour
                     )
                 ]
-                state[room_key] = latest
-                save_state(state_path, state)
                 if mentions:
                     message = mentions[0]
                     sender = str(message.get("account", {}).get("name", "不明"))
@@ -295,10 +301,10 @@ def run(config: Config, state_path: Path, *, once: bool = False) -> None:
                         len(mentions),
                     )
                     alarm.run(room_names[room_id], sender, url)
+                state[room_key] = latest
+                save_state(state_path, state)
             except Exception:
                 logging.exception("Failed to check room %s", room_id)
-        if once:
-            return
         active_now = is_active_hour(datetime.now(), config.start_hour, config.end_hour)
         time.sleep(config.poll_seconds if active_now else max(300, config.poll_seconds))
 
@@ -308,7 +314,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
-    parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate the configuration and Chatwork API access, then exit",
+    )
     parser.add_argument("--foreground", action="store_true")
     parser.add_argument(
         "--test-alarm",
@@ -329,7 +339,10 @@ def main() -> int:
         return 0
     try:
         config = load_config(args.config)
-        run(config, args.state, once=args.once)
+        if args.check:
+            check_connection(config)
+        else:
+            run(config, args.state)
     except KeyboardInterrupt:
         logging.info("Watcher stopped")
     except Exception:

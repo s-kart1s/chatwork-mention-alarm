@@ -73,7 +73,7 @@ cp "$app_dir/chatwork_alarm.py" "$runtime_dir/chatwork_alarm.py"
 chmod 700 "$runtime_dir/chatwork_alarm.py"
 
 echo "Chatwork APIへの接続と設定を確認しています。"
-if ! "$python_bin" "$runtime_dir/chatwork_alarm.py" --once --foreground; then
+if ! "$python_bin" "$runtime_dir/chatwork_alarm.py" --check --foreground; then
   echo "API接続または設定の確認に失敗しました。常駐監視は開始していません。" >&2
   exit 1
 fi
