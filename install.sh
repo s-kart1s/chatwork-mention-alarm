@@ -86,7 +86,8 @@ created_token=0
 if /usr/bin/security find-generic-password -s "$service" -a "$keychain_account" >/dev/null 2>&1; then
   echo "キーチェーンに保存済みのChatwork APIトークンを使用します。"
 else
-  echo "Chatwork APIトークンを入力してください（画面には表示されません）。"
+  echo "この後、macOSキーチェーンが「password data」と「retype password」を尋ねます。"
+  echo "どちらにも同じChatwork APIトークンを入力してください（画面には表示されません）。"
   /usr/bin/security add-generic-password \
     -s "$service" \
     -a "$keychain_account" \
