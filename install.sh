@@ -22,18 +22,53 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-read -r -p "監視するChatworkルームID（複数の場合はカンマ区切り）: " room_ids
+default_room_ids=""
+default_start_hour="4"
+default_end_hour="9"
+default_poll_seconds="30"
+existing_config="$config_dir/config.json"
+if [[ -f "$existing_config" ]]; then
+  IFS='|' read -r \
+    default_room_ids default_start_hour default_end_hour default_poll_seconds \
+    < <("$python_bin" - "$existing_config" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+try:
+    config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    room_ids = ",".join(str(value) for value in config["room_ids"])
+    print(
+        room_ids,
+        config.get("start_hour", 4),
+        config.get("end_hour", 9),
+        config.get("poll_seconds", 30),
+        sep="|",
+    )
+except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    print("", 4, 9, 30, sep="|")
+PY
+  )
+fi
+
+if [[ -n "$default_room_ids" ]]; then
+  room_prompt="監視するChatworkルームID（複数可・カンマ区切り）[$default_room_ids]: "
+else
+  room_prompt="監視するChatworkルームID（URLのrid直後の数字、複数可・カンマ区切り）: "
+fi
+read -r -p "$room_prompt" room_ids
+room_ids="${room_ids:-$default_room_ids}"
 if [[ ! "$room_ids" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
   echo "ルームIDは数字をカンマ区切りで入力してください。" >&2
   exit 1
 fi
 
-read -r -p "監視開始時刻（0〜23）[4]: " start_hour
-start_hour="${start_hour:-4}"
-read -r -p "監視終了時刻（0〜23）[9]: " end_hour
-end_hour="${end_hour:-9}"
-read -r -p "確認間隔（秒、15以上）[30]: " poll_seconds
-poll_seconds="${poll_seconds:-30}"
+read -r -p "監視開始時刻（0〜23）[$default_start_hour]: " start_hour
+start_hour="${start_hour:-$default_start_hour}"
+read -r -p "監視終了時刻（0〜23）[$default_end_hour]: " end_hour
+end_hour="${end_hour:-$default_end_hour}"
+read -r -p "確認間隔（秒、15以上）[$default_poll_seconds]: " poll_seconds
+poll_seconds="${poll_seconds:-$default_poll_seconds}"
 
 if [[ ! "$start_hour" =~ ^([0-9]|1[0-9]|2[0-3])$ ]] || \
    [[ ! "$end_hour" =~ ^([0-9]|1[0-9]|2[0-3])$ ]] || \
