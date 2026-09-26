@@ -307,7 +307,7 @@ def run(config: Config, state_path: Path) -> None:
     client = ChatworkClient(token)
     profile = client.me()
     account_id = int(profile["account_id"])
-    logging.info("Watcher started for account_id=%s", account_id)
+    logging.info("Watcher started")
 
     alarm = Alarm(config.sound_path, config.sound_volume)
     state = load_state(state_path)
