@@ -1,0 +1,20 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run unit tests
+        run: python3 -m unittest -v
+      - name: Check Python syntax
+        run: python3 -m py_compile chatwork_alarm.py
+      - name: Check shell syntax
+        run: bash -n install.sh status.sh test-alarm.sh uninstall.sh
