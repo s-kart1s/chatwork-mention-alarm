@@ -47,6 +47,7 @@ trap 'rm -rf "$temporary_dir"' EXIT
 temporary_config="$temporary_dir/config.json"
 temporary_log="$temporary_dir/check.log"
 
+created_token=0
 if /usr/bin/security find-generic-password -s "$service" -a "$keychain_account" >/dev/null 2>&1; then
   echo "キーチェーンに保存済みのChatwork APIトークンを使用します。"
 else
@@ -55,6 +56,7 @@ else
     -s "$service" \
     -a "$keychain_account" \
     -w >/dev/null
+  created_token=1
 fi
 
 "$python_bin" - "$temporary_config" "$room_ids" "$start_hour" "$end_hour" "$poll_seconds" <<'PY'
@@ -80,6 +82,12 @@ if ! "$python_bin" "$app_dir/chatwork_alarm.py" \
   --config "$temporary_config" \
   --log "$temporary_log" \
   --foreground; then
+  if (( created_token )); then
+    /usr/bin/security delete-generic-password \
+      -s "$service" \
+      -a "$keychain_account" >/dev/null 2>&1 || true
+    echo "今回入力したAPIトークンをキーチェーンから削除しました。" >&2
+  fi
   echo "API接続または設定の確認に失敗しました。常駐監視は開始していません。" >&2
   exit 1
 fi
