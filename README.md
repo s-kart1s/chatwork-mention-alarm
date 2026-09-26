@@ -98,7 +98,7 @@ launchctl kickstart -k gui/$(id -u)/io.github.skartis.chatwork-mention-alarm
 ./uninstall.sh
 ```
 
-LaunchAgentと常駐用実行ファイルをゴミ箱へ移動します。再導入できるよう、設定・ログ・キーチェーンのトークンは残します。
+LaunchAgent、常駐用実行ファイル、監視状態ファイルをゴミ箱へ移動します。再導入できるよう、設定・ログ・キーチェーンのトークンは残します。
 
 ## セキュリティ
 

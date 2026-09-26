@@ -13,5 +13,5 @@ if [[ -d "$runtime_dir" ]]; then
   mv "$runtime_dir" "$HOME/.Trash/chatwork-mention-alarm-runtime.$(date +%Y%m%d%H%M%S)"
 fi
 
-echo "常駐監視を停止し、LaunchAgentと実行ファイルをゴミ箱へ移動しました。"
+echo "常駐監視を停止し、LaunchAgent、実行ファイル、監視状態ファイルをゴミ箱へ移動しました。"
 echo "設定・ログ・キーチェーンのトークンは、再導入できるよう残しています。"
