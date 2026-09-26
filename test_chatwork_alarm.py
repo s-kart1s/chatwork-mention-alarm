@@ -1,7 +1,13 @@
 import unittest
 from datetime import datetime
 
-from chatwork_alarm import is_active_hour, is_mention, latest_message_id, newer_messages
+from chatwork_alarm import (
+    is_active_hour,
+    is_mention,
+    is_message_in_active_hours,
+    latest_message_id,
+    newer_messages,
+)
 
 
 class MentionTests(unittest.TestCase):
@@ -25,6 +31,13 @@ class ActiveHourTests(unittest.TestCase):
         self.assertTrue(is_active_hour(datetime(2026, 9, 26, 23, 0), 22, 6))
         self.assertTrue(is_active_hour(datetime(2026, 9, 26, 5, 0), 22, 6))
         self.assertFalse(is_active_hour(datetime(2026, 9, 26, 12, 0), 22, 6))
+
+    def test_message_send_time_is_used(self):
+        message = {"send_time": int(datetime(2026, 9, 26, 3, 59).timestamp())}
+        self.assertFalse(is_message_in_active_hours(message, 4, 9))
+
+        message = {"send_time": int(datetime(2026, 9, 26, 4, 0).timestamp())}
+        self.assertTrue(is_message_in_active_hours(message, 4, 9))
 
 
 class MessageTests(unittest.TestCase):

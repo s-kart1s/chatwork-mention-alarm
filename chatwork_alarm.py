@@ -6,12 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import signal
 import subprocess
-import sys
-import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -38,7 +37,6 @@ class Config:
     poll_seconds: int
     sound_path: str
     sound_volume: float
-    test_mode: bool = False
 
 
 class ChatworkClient:
@@ -93,7 +91,7 @@ def read_token() -> str:
     return result.stdout.strip()
 
 
-def load_config(path: Path, *, test_mode: bool = False) -> Config:
+def load_config(path: Path) -> Config:
     raw = json.loads(path.read_text(encoding="utf-8"))
     room_ids = tuple(int(value) for value in raw["room_ids"])
     if not room_ids:
@@ -115,7 +113,6 @@ def load_config(path: Path, *, test_mode: bool = False) -> Config:
         poll_seconds=poll_seconds,
         sound_path=sound_path,
         sound_volume=float(raw.get("sound_volume", 2.0)),
-        test_mode=test_mode,
     )
 
 
@@ -130,6 +127,13 @@ def is_active_hour(now: datetime, start_hour: int, end_hour: int) -> bool:
 
 def is_mention(body: str, account_id: int) -> bool:
     return f"[To:{account_id}]" in body or f"[rp aid={account_id} " in body
+
+
+def is_message_in_active_hours(
+    message: dict[str, Any], start_hour: int, end_hour: int
+) -> bool:
+    sent_at = datetime.fromtimestamp(int(message["send_time"]))
+    return is_active_hour(sent_at, start_hour, end_hour)
 
 
 def load_state(path: Path) -> dict[str, str]:
@@ -169,32 +173,19 @@ class Alarm:
     def __init__(self, sound_path: str, volume: float) -> None:
         self.sound_path = sound_path
         self.volume = volume
-        self._lock = threading.Lock()
-        self._active = False
 
-    def trigger(self, room_name: str, sender: str, message_url: str) -> None:
-        with self._lock:
-            if self._active:
-                logging.warning("Alarm is already active; additional mention: %s", message_url)
-                return
-            self._active = True
-        thread = threading.Thread(
-            target=self._run,
-            args=(room_name, sender, message_url),
-            daemon=True,
-        )
-        thread.start()
-
-    def _run(self, room_name: str, sender: str, message_url: str) -> None:
+    def run(self, room_name: str, sender: str, message_url: str) -> None:
         title = "Chatwork 緊急メンション"
-        message = f"{sender}さんからTo/返信があります。\\nルーム: {room_name}\\n{message_url}"
+        message = f"{sender}さんからTo/返信があります。\nルーム: {room_name}\n{message_url}"
         script = (
             'display dialog "' + applescript_escape(message) + '" '
             'with title "' + applescript_escape(title) + '" '
-            'buttons {"停止"} default button "停止" with icon caution giving up after 3600'
+            'buttons {"停止"} default button "停止" with icon caution'
         )
-        dialog = subprocess.Popen(["/usr/bin/osascript", "-e", script])
+        dialog: subprocess.Popen[bytes] | None = None
+        player: subprocess.Popen[bytes] | None = None
         try:
+            dialog = subprocess.Popen(["/usr/bin/osascript", "-e", script])
             while dialog.poll() is None:
                 player = subprocess.Popen(
                     [
@@ -210,10 +201,8 @@ class Alarm:
                     player.terminate()
                     player.wait(timeout=2)
         finally:
-            if dialog.poll() is None:
-                dialog.terminate()
-            with self._lock:
-                self._active = False
+            terminate_process(player)
+            terminate_process(dialog)
             logging.info("Alarm stopped")
 
 
@@ -221,9 +210,31 @@ def applescript_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def terminate_process(process: subprocess.Popen[bytes] | None) -> None:
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2)
+
+
+def handle_shutdown(_signum: int, _frame: Any) -> None:
+    raise KeyboardInterrupt
+
+
 def configure_logging(log_path: Path, foreground: bool) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    handlers: list[logging.Handler] = [logging.FileHandler(log_path, encoding="utf-8")]
+    handlers: list[logging.Handler] = [
+        RotatingFileHandler(
+            log_path,
+            maxBytes=1_000_000,
+            backupCount=3,
+            encoding="utf-8",
+        )
+    ]
     if foreground:
         handlers.append(logging.StreamHandler())
     logging.basicConfig(
@@ -248,9 +259,6 @@ def run(config: Config, state_path: Path, *, once: bool = False) -> None:
     state = load_state(state_path)
 
     while True:
-        active = config.test_mode or is_active_hour(
-            datetime.now(), config.start_hour, config.end_hour
-        )
         for room_id in config.room_ids:
             try:
                 messages = client.recent_messages(room_id)
@@ -264,26 +272,35 @@ def run(config: Config, state_path: Path, *, once: bool = False) -> None:
                     save_state(state_path, state)
                     logging.info("Baseline set for room %s", room_id)
                     continue
-                for message in newer_messages(messages, previous):
-                    body = str(message.get("body", ""))
-                    if active and is_mention(body, account_id):
-                        sender = str(message.get("account", {}).get("name", "不明"))
-                        message_id = str(message["message_id"])
-                        url = f"https://www.chatwork.com/#!rid{room_id}-{message_id}"
-                        logging.warning(
-                            "Mention detected: room=%s sender=%s message_id=%s",
-                            room_id,
-                            sender,
-                            message_id,
-                        )
-                        alarm.trigger(room_names[room_id], sender, url)
+                mentions = [
+                    message
+                    for message in newer_messages(messages, previous)
+                    if is_mention(str(message.get("body", "")), account_id)
+                    and is_message_in_active_hours(
+                        message, config.start_hour, config.end_hour
+                    )
+                ]
                 state[room_key] = latest
                 save_state(state_path, state)
+                if mentions:
+                    message = mentions[0]
+                    sender = str(message.get("account", {}).get("name", "不明"))
+                    message_id = str(message["message_id"])
+                    url = f"https://www.chatwork.com/#!rid{room_id}-{message_id}"
+                    logging.warning(
+                        "Mention detected: room=%s sender=%s message_id=%s count=%s",
+                        room_id,
+                        sender,
+                        message_id,
+                        len(mentions),
+                    )
+                    alarm.run(room_names[room_id], sender, url)
             except Exception:
                 logging.exception("Failed to check room %s", room_id)
         if once:
             return
-        time.sleep(config.poll_seconds)
+        active_now = is_active_hour(datetime.now(), config.start_hour, config.end_hour)
+        time.sleep(config.poll_seconds if active_now else max(300, config.poll_seconds))
 
 
 def parse_args() -> argparse.Namespace:
@@ -304,12 +321,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     configure_logging(args.log, args.foreground)
+    signal.signal(signal.SIGTERM, handle_shutdown)
     if args.test_alarm:
-        config = load_config(args.config, test_mode=True)
+        config = load_config(args.config)
         alarm = Alarm(config.sound_path, config.sound_volume)
-        alarm.trigger("動作確認", "Chatwork Alarm", "テストです")
-        while alarm._active:
-            time.sleep(0.2)
+        alarm.run("動作確認", "Chatwork Alarm", "テストです")
         return 0
     try:
         config = load_config(args.config)
