@@ -1,12 +1,21 @@
+import io
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from datetime import datetime
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 from chatwork_alarm import (
+    ChatworkClient,
     is_active_hour,
     is_mention,
     is_message_in_active_hours,
     latest_message_id,
+    load_state,
     newer_messages,
+    save_state,
 )
 
 
@@ -59,6 +68,59 @@ class MessageTests(unittest.TestCase):
 
     def test_first_run_returns_no_messages(self):
         self.assertEqual(newer_messages(self.messages, None), [])
+
+
+class StateTests(unittest.TestCase):
+    def test_state_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            save_state(path, {"123": "456"})
+            self.assertEqual(load_state(path), {"123": "456"})
+
+    def test_invalid_state_rebuilds_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            path.write_text("invalid", encoding="utf-8")
+            self.assertEqual(load_state(path), {})
+
+
+class FakeResponse:
+    def __init__(self, status, payload=None):
+        self.status = status
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def read(self):
+        return json.dumps(self.payload).encode()
+
+
+class ChatworkClientTests(unittest.TestCase):
+    def test_no_content_returns_empty_list(self):
+        with patch("chatwork_alarm.urlopen", return_value=FakeResponse(204)):
+            self.assertEqual(ChatworkClient("token").recent_messages(123), [])
+
+    def test_http_error_does_not_expose_token(self):
+        error = HTTPError(
+            "https://api.chatwork.com/v2/me",
+            401,
+            "Unauthorized",
+            {},
+            io.BytesIO(b'{"errors":["Invalid token"]}'),
+        )
+        with patch("chatwork_alarm.urlopen", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, "Chatwork API error 401") as raised:
+                ChatworkClient("secret-token").me()
+        self.assertNotIn("secret-token", str(raised.exception))
+
+    def test_connection_error_is_wrapped(self):
+        with patch("chatwork_alarm.urlopen", side_effect=URLError("offline")):
+            with self.assertRaisesRegex(RuntimeError, "connection error"):
+                ChatworkClient("token").me()
 
 
 if __name__ == "__main__":

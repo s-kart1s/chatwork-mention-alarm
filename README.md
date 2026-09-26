@@ -72,6 +72,8 @@ cd chatwork-mention-alarm
 
 `start_hour` と `end_hour` が同じ場合は終日監視します。`22`〜`6`のように日付をまたぐ指定も可能です。変更後は以下で再起動します。
 
+APIの確認間隔は監視時間内では`poll_seconds`、時間外ではAPI負荷を抑えるため最低5分です。アラーム対象かどうかはメッセージの送信時刻で判定します。
+
 ```sh
 launchctl kickstart -k gui/$(id -u)/io.github.skartis.chatwork-mention-alarm
 ```
