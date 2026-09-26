@@ -275,7 +275,7 @@ def process_messages(
 ) -> str | None:
     latest = latest_message_id(messages)
     if latest is None:
-        return None
+        return "0" if previous is None else None
     if previous is None:
         logging.info("Baseline set for room %s", room_id)
         return latest

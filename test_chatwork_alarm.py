@@ -199,6 +199,30 @@ class ProcessMessagesTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "alarm failed"):
             process_messages([self.message], "10", 123, self.config, alarm, 456)
 
+    def test_empty_room_gets_zero_baseline(self):
+        alarm = Mock()
+        self.assertEqual(
+            process_messages([], None, 123, self.config, alarm, 456),
+            "0",
+        )
+        alarm.run.assert_not_called()
+
+    def test_first_message_after_empty_baseline_can_alert(self):
+        alarm = Mock()
+        self.assertEqual(
+            process_messages([self.message], "0", 123, self.config, alarm, 456),
+            "20",
+        )
+        alarm.run.assert_called_once()
+
+    def test_existing_messages_create_baseline_without_alert(self):
+        alarm = Mock()
+        self.assertEqual(
+            process_messages([self.message], None, 123, self.config, alarm, 456),
+            "20",
+        )
+        alarm.run.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
