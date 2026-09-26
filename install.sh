@@ -157,7 +157,12 @@ chmod 600 "$agent_path"
 
 domain="gui/$(id -u)"
 /bin/launchctl bootout "$domain/$service" 2>/dev/null || true
-/bin/launchctl bootstrap "$domain" "$agent_path"
+if ! /bin/launchctl bootstrap "$domain" "$agent_path"; then
+  echo "LaunchAgentの登録に失敗したため、2秒後に1回だけ再試行します。" >&2
+  sleep 2
+  /bin/launchctl bootout "$domain/$service" 2>/dev/null || true
+  /bin/launchctl bootstrap "$domain" "$agent_path"
+fi
 /bin/launchctl enable "$domain/$service"
 
 first_pid=""
