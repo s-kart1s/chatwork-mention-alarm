@@ -211,6 +211,8 @@ class Alarm:
                     raise RuntimeError(f"afplay exited with status {player.returncode}")
                 elif time.monotonic() - started_at < 0.1:
                     time.sleep(1)
+            if dialog.returncode:
+                raise RuntimeError(f"osascript exited with status {dialog.returncode}")
         finally:
             terminate_process(player)
             terminate_process(dialog)
@@ -263,6 +265,43 @@ def check_connection(config: Config) -> None:
     logging.info("Connection check succeeded for %s room(s)", len(config.room_ids))
 
 
+def process_messages(
+    messages: list[dict[str, Any]],
+    previous: str | None,
+    account_id: int,
+    config: Config,
+    alarm: Alarm,
+    room_id: int,
+) -> str | None:
+    latest = latest_message_id(messages)
+    if latest is None:
+        return None
+    if previous is None:
+        logging.info("Baseline set for room %s", room_id)
+        return latest
+
+    mentions = [
+        message
+        for message in newer_messages(messages, previous)
+        if is_mention(str(message.get("body", "")), account_id)
+        and is_message_in_active_hours(message, config.start_hour, config.end_hour)
+    ]
+    if mentions:
+        message = mentions[0]
+        sender = str(message.get("account", {}).get("name", "不明"))
+        message_id = str(message["message_id"])
+        url = f"https://www.chatwork.com/#!rid{room_id}-{message_id}"
+        logging.warning(
+            "Mention detected: room=%s sender=%s message_id=%s count=%s",
+            room_id,
+            sender,
+            message_id,
+            len(mentions),
+        )
+        alarm.run(str(room_id), sender, url)
+    return latest
+
+
 def run(config: Config, state_path: Path) -> None:
     token = read_token()
     client = ChatworkClient(token)
@@ -278,36 +317,16 @@ def run(config: Config, state_path: Path) -> None:
             try:
                 messages = client.recent_messages(room_id)
                 room_key = str(room_id)
-                latest = latest_message_id(messages)
+                latest = process_messages(
+                    messages,
+                    state.get(room_key),
+                    account_id,
+                    config,
+                    alarm,
+                    room_id,
+                )
                 if latest is None:
                     continue
-                previous = state.get(room_key)
-                if previous is None:
-                    state[room_key] = latest
-                    save_state(state_path, state)
-                    logging.info("Baseline set for room %s", room_id)
-                    continue
-                mentions = [
-                    message
-                    for message in newer_messages(messages, previous)
-                    if is_mention(str(message.get("body", "")), account_id)
-                    and is_message_in_active_hours(
-                        message, config.start_hour, config.end_hour
-                    )
-                ]
-                if mentions:
-                    message = mentions[0]
-                    sender = str(message.get("account", {}).get("name", "不明"))
-                    message_id = str(message["message_id"])
-                    url = f"https://www.chatwork.com/#!rid{room_id}-{message_id}"
-                    logging.warning(
-                        "Mention detected: room=%s sender=%s message_id=%s count=%s",
-                        room_id,
-                        sender,
-                        message_id,
-                        len(mentions),
-                    )
-                    alarm.run(str(room_id), sender, url)
                 state[room_key] = latest
                 save_state(state_path, state)
             except Exception:

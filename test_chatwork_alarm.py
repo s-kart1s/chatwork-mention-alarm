@@ -4,11 +4,13 @@ from pathlib import Path
 import tempfile
 import unittest
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 
 from chatwork_alarm import (
     ChatworkClient,
+    Alarm,
+    Config,
     is_active_hour,
     is_mention,
     is_message_in_active_hours,
@@ -16,6 +18,7 @@ from chatwork_alarm import (
     load_config,
     load_state,
     newer_messages,
+    process_messages,
     save_state,
 )
 
@@ -154,6 +157,47 @@ class ChatworkClientTests(unittest.TestCase):
         with patch("chatwork_alarm.urlopen", side_effect=URLError("offline")):
             with self.assertRaisesRegex(RuntimeError, "connection error"):
                 ChatworkClient("token").me()
+
+
+class AlarmTests(unittest.TestCase):
+    def test_osascript_failure_is_reported(self):
+        process = Mock(returncode=1)
+        process.poll.return_value = 1
+        with patch("chatwork_alarm.subprocess.Popen", return_value=process):
+            with self.assertRaisesRegex(RuntimeError, "osascript exited"):
+                Alarm("/sound", 1).run("room", "sender", "url")
+
+
+class ProcessMessagesTests(unittest.TestCase):
+    def setUp(self):
+        self.config = Config(
+            room_ids=(123,),
+            start_hour=4,
+            end_hour=9,
+            poll_seconds=30,
+            sound_path="/System/Library/Sounds/Sosumi.aiff",
+            sound_volume=2,
+        )
+        self.message = {
+            "message_id": "20",
+            "send_time": int(datetime(2026, 9, 26, 5, 0).timestamp()),
+            "body": "[To:123] wake up",
+            "account": {"name": "sender"},
+        }
+
+    def test_returns_latest_after_alarm_is_acknowledged(self):
+        alarm = Mock()
+        self.assertEqual(
+            process_messages([self.message], "10", 123, self.config, alarm, 456),
+            "20",
+        )
+        alarm.run.assert_called_once()
+
+    def test_does_not_return_latest_when_alarm_fails(self):
+        alarm = Mock()
+        alarm.run.side_effect = RuntimeError("alarm failed")
+        with self.assertRaisesRegex(RuntimeError, "alarm failed"):
+            process_messages([self.message], "10", 123, self.config, alarm, 456)
 
 
 if __name__ == "__main__":
