@@ -9,12 +9,13 @@ config_dir="$HOME/.config/$app_name"
 runtime_dir="$HOME/Library/Application Support/$app_name"
 log_dir="$HOME/Library/Logs/$app_name"
 agent_path="$HOME/Library/LaunchAgents/$service.plist"
-python_bin="$(command -v python3 || true)"
+python_command="$(command -v python3 || true)"
 
-if [[ -z "$python_bin" ]]; then
+if [[ -z "$python_command" ]]; then
   echo "python3 が見つかりません。Python 3をインストールしてから再実行してください。" >&2
   exit 1
 fi
+python_bin="$("$python_command" -c 'import sys; print(sys.executable)')"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "このツールはmacOS専用です。" >&2
@@ -41,21 +42,14 @@ if [[ ! "$start_hour" =~ ^([0-9]|1[0-9]|2[0-3])$ ]] || \
   exit 1
 fi
 
-read -r -s -p "Chatwork APIトークン（画面には表示されません）: " token
-echo
-if [[ -z "$token" ]]; then
-  echo "APIトークンが空のため中止しました。" >&2
-  exit 1
-fi
-
 mkdir -p "$config_dir" "$runtime_dir" "$log_dir" "$HOME/Library/LaunchAgents"
 
+echo "Chatwork APIトークンを入力してください（画面には表示されません）。"
 /usr/bin/security add-generic-password \
   -U \
   -s "$service" \
   -a "$keychain_account" \
-  -w "$token" >/dev/null
-unset token
+  -w >/dev/null
 
 "$python_bin" - "$config_dir/config.json" "$room_ids" "$start_hour" "$end_hour" "$poll_seconds" <<'PY'
 import json
@@ -77,6 +71,12 @@ chmod 600 "$config_dir/config.json"
 
 cp "$app_dir/chatwork_alarm.py" "$runtime_dir/chatwork_alarm.py"
 chmod 700 "$runtime_dir/chatwork_alarm.py"
+
+echo "Chatwork APIへの接続と設定を確認しています。"
+if ! "$python_bin" "$runtime_dir/chatwork_alarm.py" --once --foreground; then
+  echo "API接続または設定の確認に失敗しました。常駐監視は開始していません。" >&2
+  exit 1
+fi
 
 "$python_bin" - "$agent_path" "$service" "$python_bin" "$runtime_dir/chatwork_alarm.py" "$log_dir" <<'PY'
 from pathlib import Path
@@ -103,8 +103,17 @@ domain="gui/$(id -u)"
 /bin/launchctl bootout "$domain/$service" 2>/dev/null || true
 /bin/launchctl bootstrap "$domain" "$agent_path"
 /bin/launchctl enable "$domain/$service"
-/bin/launchctl kickstart -k "$domain/$service" >/dev/null 2>&1 &
 
-echo "Chatworkメンション監視を開始しました。"
-echo "状態確認: $app_dir/status.sh"
-echo "アラーム試験: $app_dir/test-alarm.sh"
+for _ in {1..10}; do
+  if /bin/launchctl print "$domain/$service" 2>/dev/null | /usr/bin/grep -q 'state = running'; then
+    echo "Chatworkメンション監視を開始しました。"
+    echo "状態確認: $app_dir/status.sh"
+    echo "アラーム試験: $app_dir/test-alarm.sh"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "常駐プロセスの起動を確認できませんでした。" >&2
+tail -n 20 "$log_dir/launchd.err.log" 2>/dev/null || true
+exit 1

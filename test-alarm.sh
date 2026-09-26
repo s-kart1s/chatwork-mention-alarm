@@ -2,4 +2,9 @@
 set -euo pipefail
 
 app_dir="$(cd "$(dirname "$0")" && pwd)"
-exec /usr/bin/python3 "$app_dir/chatwork_alarm.py" --test-alarm --foreground
+python_bin="$(command -v python3 || true)"
+if [[ -z "$python_bin" ]]; then
+  echo "python3 が見つかりません。" >&2
+  exit 1
+fi
+exec "$python_bin" "$app_dir/chatwork_alarm.py" --test-alarm --foreground
