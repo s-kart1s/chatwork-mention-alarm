@@ -13,6 +13,7 @@ from chatwork_alarm import (
     is_mention,
     is_message_in_active_hours,
     latest_message_id,
+    load_config,
     load_state,
     newer_messages,
     save_state,
@@ -82,6 +83,38 @@ class StateTests(unittest.TestCase):
             path = Path(directory) / "state.json"
             path.write_text("invalid", encoding="utf-8")
             self.assertEqual(load_state(path), {})
+
+
+class ConfigTests(unittest.TestCase):
+    def write_config(self, directory, **overrides):
+        config = {
+            "room_ids": [123],
+            "start_hour": 4,
+            "end_hour": 9,
+            "poll_seconds": 30,
+            "sound_path": "/System/Library/Sounds/Sosumi.aiff",
+            "sound_volume": 2.0,
+            **overrides,
+        }
+        path = Path(directory) / "config.json"
+        path.write_text(json.dumps(config), encoding="utf-8")
+        return path
+
+    def test_rejects_excessive_api_rate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_config(
+                directory,
+                room_ids=list(range(20)),
+                poll_seconds=15,
+            )
+            with self.assertRaisesRegex(ValueError, "request rate"):
+                load_config(path)
+
+    def test_rejects_invalid_volume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_config(directory, sound_volume=float("nan"))
+            with self.assertRaisesRegex(ValueError, "sound_volume"):
+                load_config(path)
 
 
 class FakeResponse:

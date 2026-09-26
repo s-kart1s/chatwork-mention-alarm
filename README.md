@@ -72,7 +72,7 @@ cd chatwork-mention-alarm
 
 `start_hour` と `end_hour` が同じ場合は終日監視します。`22`〜`6`のように日付をまたぐ指定も可能です。変更後は以下で再起動します。
 
-APIの確認間隔は監視時間内では`poll_seconds`、時間外ではAPI負荷を抑えるため最低5分です。アラーム対象かどうかはメッセージの送信時刻で判定します。
+アラーム対象かどうかは、取得時刻ではなくメッセージの送信時刻で判定します。設定可能なルーム数と確認間隔はChatwork APIの制限を超えない範囲に制限されます。
 
 ```sh
 launchctl kickstart -k gui/$(id -u)/io.github.skartis.chatwork-mention-alarm
@@ -85,6 +85,8 @@ launchctl kickstart -k gui/$(id -u)/io.github.skartis.chatwork-mention-alarm
 - 状態: `~/Library/Application Support/chatwork-mention-alarm/state.json`
 - ログ: `~/Library/Logs/chatwork-mention-alarm`
 - APIトークン: macOSキーチェーン
+
+再インストール時はキーチェーンに保存済みのAPIトークンを再利用します。トークンを変更する場合は、先に「キーチェーンアクセス」で`io.github.skartis.chatwork-mention-alarm`を削除してから再実行してください。
 
 ## アンインストール
 

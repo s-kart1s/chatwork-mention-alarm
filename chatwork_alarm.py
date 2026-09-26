@@ -7,6 +7,7 @@ import argparse
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import math
 import os
 from pathlib import Path
 import signal
@@ -62,9 +63,6 @@ class ChatworkClient:
     def me(self) -> dict[str, Any]:
         return self._get("/me")
 
-    def room(self, room_id: int) -> dict[str, Any]:
-        return self._get(f"/rooms/{room_id}")
-
     def recent_messages(self, room_id: int) -> list[dict[str, Any]]:
         return self._get(f"/rooms/{room_id}/messages?force=1")
 
@@ -103,16 +101,24 @@ def load_config(path: Path) -> Config:
         raise ValueError("start_hour and end_hour must be between 0 and 23")
     if poll_seconds < 15:
         raise ValueError("poll_seconds must be at least 15")
+    requests_per_five_minutes = len(room_ids) * 300 / poll_seconds
+    if requests_per_five_minutes > 280:
+        raise ValueError(
+            "room_ids and poll_seconds exceed the safe Chatwork API request rate"
+        )
     sound_path = str(raw.get("sound_path", DEFAULT_SOUND))
     if not Path(sound_path).is_file():
         raise ValueError(f"sound_path does not exist: {sound_path}")
+    sound_volume = float(raw.get("sound_volume", 2.0))
+    if not math.isfinite(sound_volume) or not 0 <= sound_volume <= 2:
+        raise ValueError("sound_volume must be between 0 and 2")
     return Config(
         room_ids=room_ids,
         start_hour=start_hour,
         end_hour=end_hour,
         poll_seconds=poll_seconds,
         sound_path=sound_path,
-        sound_volume=float(raw.get("sound_volume", 2.0)),
+        sound_volume=sound_volume,
     )
 
 
@@ -187,6 +193,7 @@ class Alarm:
         try:
             dialog = subprocess.Popen(["/usr/bin/osascript", "-e", script])
             while dialog.poll() is None:
+                started_at = time.monotonic()
                 player = subprocess.Popen(
                     [
                         "/usr/bin/afplay",
@@ -200,6 +207,10 @@ class Alarm:
                 if dialog.poll() is not None and player.poll() is None:
                     player.terminate()
                     player.wait(timeout=2)
+                elif player.returncode:
+                    raise RuntimeError(f"afplay exited with status {player.returncode}")
+                elif time.monotonic() - started_at < 0.1:
+                    time.sleep(1)
         finally:
             terminate_process(player)
             terminate_process(dialog)
@@ -259,10 +270,6 @@ def run(config: Config, state_path: Path) -> None:
     account_id = int(profile["account_id"])
     logging.info("Watcher started for account_id=%s", account_id)
 
-    room_names: dict[int, str] = {}
-    for room_id in config.room_ids:
-        room_names[room_id] = str(client.room(room_id).get("name", room_id))
-
     alarm = Alarm(config.sound_path, config.sound_volume)
     state = load_state(state_path)
 
@@ -300,13 +307,12 @@ def run(config: Config, state_path: Path) -> None:
                         message_id,
                         len(mentions),
                     )
-                    alarm.run(room_names[room_id], sender, url)
+                    alarm.run(str(room_id), sender, url)
                 state[room_key] = latest
                 save_state(state_path, state)
             except Exception:
                 logging.exception("Failed to check room %s", room_id)
-        active_now = is_active_hour(datetime.now(), config.start_hour, config.end_hour)
-        time.sleep(config.poll_seconds if active_now else max(300, config.poll_seconds))
+        time.sleep(config.poll_seconds)
 
 
 def parse_args() -> argparse.Namespace:

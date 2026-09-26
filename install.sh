@@ -42,14 +42,24 @@ if [[ ! "$start_hour" =~ ^([0-9]|1[0-9]|2[0-3])$ ]] || \
   exit 1
 fi
 
+IFS=',' read -r -a room_id_list <<<"$room_ids"
+requests_per_five_minutes=$(( ${#room_id_list[@]} * 300 / poll_seconds ))
+if (( requests_per_five_minutes > 280 )); then
+  echo "ルーム数に対して確認間隔が短すぎます。Chatwork APIの制限内になるよう間隔を長くしてください。" >&2
+  exit 1
+fi
+
 mkdir -p "$config_dir" "$runtime_dir" "$log_dir" "$HOME/Library/LaunchAgents"
 
-echo "Chatwork APIトークンを入力してください（画面には表示されません）。"
-/usr/bin/security add-generic-password \
-  -U \
-  -s "$service" \
-  -a "$keychain_account" \
-  -w >/dev/null
+if /usr/bin/security find-generic-password -s "$service" -a "$keychain_account" >/dev/null 2>&1; then
+  echo "キーチェーンに保存済みのChatwork APIトークンを使用します。"
+else
+  echo "Chatwork APIトークンを入力してください（画面には表示されません）。"
+  /usr/bin/security add-generic-password \
+    -s "$service" \
+    -a "$keychain_account" \
+    -w >/dev/null
+fi
 
 "$python_bin" - "$config_dir/config.json" "$room_ids" "$start_hour" "$end_hour" "$poll_seconds" <<'PY'
 import json
