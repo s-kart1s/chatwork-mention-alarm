@@ -11,6 +11,7 @@ from chatwork_alarm import (
     ChatworkClient,
     Alarm,
     Config,
+    applescript_escape,
     is_active_hour,
     is_mention,
     is_message_in_active_hours,
@@ -21,6 +22,11 @@ from chatwork_alarm import (
     process_messages,
     save_state,
 )
+
+
+class AppleScriptTests(unittest.TestCase):
+    def test_escapes_backslashes_and_quotes(self):
+        self.assertEqual(applescript_escape('sender\\name"'), r'sender\\name\"')
 
 
 class MentionTests(unittest.TestCase):
