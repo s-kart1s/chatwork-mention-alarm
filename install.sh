@@ -42,14 +42,10 @@ if [[ ! "$start_hour" =~ ^([0-9]|1[0-9]|2[0-3])$ ]] || \
   exit 1
 fi
 
-IFS=',' read -r -a room_id_list <<<"$room_ids"
-requests_per_five_minutes=$(( ${#room_id_list[@]} * 300 / poll_seconds ))
-if (( requests_per_five_minutes > 280 )); then
-  echo "ルーム数に対して確認間隔が短すぎます。Chatwork APIの制限内になるよう間隔を長くしてください。" >&2
-  exit 1
-fi
-
-mkdir -p "$config_dir" "$runtime_dir" "$log_dir" "$HOME/Library/LaunchAgents"
+temporary_dir="$(mktemp -d)"
+trap 'rm -rf "$temporary_dir"' EXIT
+temporary_config="$temporary_dir/config.json"
+temporary_log="$temporary_dir/check.log"
 
 if /usr/bin/security find-generic-password -s "$service" -a "$keychain_account" >/dev/null 2>&1; then
   echo "キーチェーンに保存済みのChatwork APIトークンを使用します。"
@@ -61,7 +57,7 @@ else
     -w >/dev/null
 fi
 
-"$python_bin" - "$config_dir/config.json" "$room_ids" "$start_hour" "$end_hour" "$poll_seconds" <<'PY'
+"$python_bin" - "$temporary_config" "$room_ids" "$start_hour" "$end_hour" "$poll_seconds" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -77,16 +73,22 @@ config = {
 }
 Path(path).write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 PY
-chmod 600 "$config_dir/config.json"
-
-cp "$app_dir/chatwork_alarm.py" "$runtime_dir/chatwork_alarm.py"
-chmod 700 "$runtime_dir/chatwork_alarm.py"
 
 echo "Chatwork APIへの接続と設定を確認しています。"
-if ! "$python_bin" "$runtime_dir/chatwork_alarm.py" --check --foreground; then
+if ! "$python_bin" "$app_dir/chatwork_alarm.py" \
+  --check \
+  --config "$temporary_config" \
+  --log "$temporary_log" \
+  --foreground; then
   echo "API接続または設定の確認に失敗しました。常駐監視は開始していません。" >&2
   exit 1
 fi
+
+mkdir -p "$config_dir" "$runtime_dir" "$log_dir" "$HOME/Library/LaunchAgents"
+cp "$temporary_config" "$config_dir/config.json"
+chmod 600 "$config_dir/config.json"
+cp "$app_dir/chatwork_alarm.py" "$runtime_dir/chatwork_alarm.py"
+chmod 700 "$runtime_dir/chatwork_alarm.py"
 
 "$python_bin" - "$agent_path" "$service" "$python_bin" "$runtime_dir/chatwork_alarm.py" "$log_dir" <<'PY'
 from pathlib import Path
@@ -114,15 +116,27 @@ domain="gui/$(id -u)"
 /bin/launchctl bootstrap "$domain" "$agent_path"
 /bin/launchctl enable "$domain/$service"
 
+first_pid=""
 for _ in {1..10}; do
-  if /bin/launchctl print "$domain/$service" 2>/dev/null | /usr/bin/grep -q 'state = running'; then
+  service_status="$(/bin/launchctl print "$domain/$service" 2>/dev/null || true)"
+  if /usr/bin/grep -q 'state = running' <<<"$service_status"; then
+    first_pid="$(/usr/bin/awk '/pid =/{print $3; exit}' <<<"$service_status")"
+    break
+  fi
+  sleep 1
+done
+
+if [[ -n "$first_pid" ]]; then
+  sleep 2
+  service_status="$(/bin/launchctl print "$domain/$service" 2>/dev/null || true)"
+  second_pid="$(/usr/bin/awk '/pid =/{print $3; exit}' <<<"$service_status")"
+  if /usr/bin/grep -q 'state = running' <<<"$service_status" && [[ "$first_pid" == "$second_pid" ]]; then
     echo "Chatworkメンション監視を開始しました。"
     echo "状態確認: $app_dir/status.sh"
     echo "アラーム試験: $app_dir/test-alarm.sh"
     exit 0
   fi
-  sleep 1
-done
+fi
 
 echo "常駐プロセスの起動を確認できませんでした。" >&2
 tail -n 20 "$log_dir/launchd.err.log" 2>/dev/null || true
