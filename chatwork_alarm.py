@@ -63,6 +63,9 @@ class ChatworkClient:
     def me(self) -> dict[str, Any]:
         return self._get("/me")
 
+    def rooms(self) -> list[dict[str, Any]]:
+        return self._get("/rooms")
+
     def recent_messages(self, room_id: int) -> list[dict[str, Any]]:
         return self._get(f"/rooms/{room_id}/messages?force=1")
 
@@ -175,6 +178,20 @@ def latest_message_id(messages: list[dict[str, Any]]) -> str | None:
     return str(max(int(item["message_id"]) for item in messages))
 
 
+def load_room_names(
+    client: ChatworkClient, room_ids: tuple[int, ...]
+) -> dict[int, str]:
+    names = {room_id: str(room_id) for room_id in room_ids}
+    try:
+        for room in client.rooms():
+            room_id = int(room["room_id"])
+            if room_id in names and room.get("name"):
+                names[room_id] = str(room["name"])
+    except (KeyError, TypeError, ValueError, RuntimeError):
+        logging.warning("Could not load room names; using room IDs")
+    return names
+
+
 class Alarm:
     def __init__(self, sound_path: str, volume: float) -> None:
         self.sound_path = sound_path
@@ -272,6 +289,7 @@ def process_messages(
     config: Config,
     alarm: Alarm,
     room_id: int,
+    room_name: str,
 ) -> str | None:
     latest = latest_message_id(messages)
     if latest is None:
@@ -298,7 +316,7 @@ def process_messages(
             message_id,
             len(mentions),
         )
-        alarm.run(str(room_id), sender, url)
+        alarm.run(room_name, sender, url)
     return latest
 
 
@@ -311,6 +329,7 @@ def run(config: Config, state_path: Path) -> None:
 
     alarm = Alarm(config.sound_path, config.sound_volume)
     state = load_state(state_path)
+    room_names = load_room_names(client, config.room_ids)
 
     while True:
         for room_id in config.room_ids:
@@ -324,6 +343,7 @@ def run(config: Config, state_path: Path) -> None:
                     config,
                     alarm,
                     room_id,
+                    room_names[room_id],
                 )
                 if latest is None:
                     continue
@@ -360,7 +380,11 @@ def main() -> int:
     if args.test_alarm:
         config = load_config(args.config)
         alarm = Alarm(config.sound_path, config.sound_volume)
-        alarm.run("動作確認", "Chatwork Alarm", "テストです")
+        alarm.run(
+            "サンプルルーム",
+            "サンプルユーザー",
+            "https://www.chatwork.com/#!rid000000000-0000000000000",
+        )
         return 0
     try:
         config = load_config(args.config)

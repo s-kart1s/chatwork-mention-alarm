@@ -17,6 +17,7 @@ from chatwork_alarm import (
     is_message_in_active_hours,
     latest_message_id,
     load_config,
+    load_room_names,
     load_state,
     newer_messages,
     process_messages,
@@ -78,6 +79,28 @@ class MessageTests(unittest.TestCase):
 
     def test_first_run_returns_no_messages(self):
         self.assertEqual(newer_messages(self.messages, None), [])
+
+
+class RoomNameTests(unittest.TestCase):
+    def test_loads_configured_room_names(self):
+        client = Mock()
+        client.rooms.return_value = [
+            {"room_id": 123, "name": "開発チーム"},
+            {"room_id": 999, "name": "監視対象外"},
+        ]
+        self.assertEqual(load_room_names(client, (123, 456)), {
+            123: "開発チーム",
+            456: "456",
+        })
+        client.rooms.assert_called_once_with()
+
+    def test_falls_back_to_room_ids_when_loading_fails(self):
+        client = Mock()
+        client.rooms.side_effect = RuntimeError("offline")
+        self.assertEqual(load_room_names(client, (123, 456)), {
+            123: "123",
+            456: "456",
+        })
 
 
 class StateTests(unittest.TestCase):
@@ -202,21 +225,29 @@ class ProcessMessagesTests(unittest.TestCase):
     def test_returns_latest_after_alarm_is_acknowledged(self):
         alarm = Mock()
         self.assertEqual(
-            process_messages([self.message], "10", 123, self.config, alarm, 456),
+            process_messages(
+                [self.message], "10", 123, self.config, alarm, 456, "開発チーム"
+            ),
             "20",
         )
-        alarm.run.assert_called_once()
+        alarm.run.assert_called_once_with(
+            "開発チーム",
+            "sender",
+            "https://www.chatwork.com/#!rid456-20",
+        )
 
     def test_does_not_return_latest_when_alarm_fails(self):
         alarm = Mock()
         alarm.run.side_effect = RuntimeError("alarm failed")
         with self.assertRaisesRegex(RuntimeError, "alarm failed"):
-            process_messages([self.message], "10", 123, self.config, alarm, 456)
+            process_messages(
+                [self.message], "10", 123, self.config, alarm, 456, "開発チーム"
+            )
 
     def test_empty_room_gets_zero_baseline(self):
         alarm = Mock()
         self.assertEqual(
-            process_messages([], None, 123, self.config, alarm, 456),
+            process_messages([], None, 123, self.config, alarm, 456, "開発チーム"),
             "0",
         )
         alarm.run.assert_not_called()
@@ -224,7 +255,9 @@ class ProcessMessagesTests(unittest.TestCase):
     def test_first_message_after_empty_baseline_can_alert(self):
         alarm = Mock()
         self.assertEqual(
-            process_messages([self.message], "0", 123, self.config, alarm, 456),
+            process_messages(
+                [self.message], "0", 123, self.config, alarm, 456, "開発チーム"
+            ),
             "20",
         )
         alarm.run.assert_called_once()
@@ -232,7 +265,9 @@ class ProcessMessagesTests(unittest.TestCase):
     def test_existing_messages_create_baseline_without_alert(self):
         alarm = Mock()
         self.assertEqual(
-            process_messages([self.message], None, 123, self.config, alarm, 456),
+            process_messages(
+                [self.message], None, 123, self.config, alarm, 456, "開発チーム"
+            ),
             "20",
         )
         alarm.run.assert_not_called()
