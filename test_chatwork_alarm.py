@@ -1,6 +1,7 @@
 import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime
@@ -203,6 +204,42 @@ class AlarmTests(unittest.TestCase):
         with patch("chatwork_alarm.subprocess.Popen", return_value=process):
             with self.assertRaisesRegex(RuntimeError, "osascript exited"):
                 Alarm("/sound", 1).run("room", "sender", "url")
+
+    def test_siren_stops_at_time_limit_while_dialog_remains(self):
+        dialog = Mock(returncode=0)
+        dialog.poll.side_effect = [None, None, None, None, None, 0]
+        player = Mock(returncode=None)
+        player.poll.side_effect = [None, None, None, None, 0]
+
+        with (
+            patch("chatwork_alarm.subprocess.Popen", side_effect=[dialog, player]),
+            patch(
+                "chatwork_alarm.time.monotonic",
+                side_effect=[0, 0, 0, 0.9, 1, 1],
+            ),
+            patch("chatwork_alarm.time.sleep") as sleep,
+        ):
+            Alarm("/sound", 1, sound_seconds=1).run("room", "sender", "url")
+
+        player.terminate.assert_called_once_with()
+        self.assertAlmostEqual(sleep.call_args.args[0], 0.1)
+        dialog.wait.assert_called_once_with()
+
+    def test_dialog_remains_when_player_needs_killing(self):
+        dialog = Mock(returncode=0)
+        dialog.poll.side_effect = [None, None, None, None, 0]
+        player = Mock(returncode=None)
+        player.poll.side_effect = [None, None, None, 0]
+        player.wait.side_effect = [subprocess.TimeoutExpired("afplay", 2), None]
+
+        with (
+            patch("chatwork_alarm.subprocess.Popen", side_effect=[dialog, player]),
+            patch("chatwork_alarm.time.monotonic", side_effect=[0, 0, 0, 1, 1]),
+        ):
+            Alarm("/sound", 1, sound_seconds=1).run("room", "sender", "url")
+
+        player.kill.assert_called_once_with()
+        dialog.wait.assert_called_once_with()
 
 
 class ProcessMessagesTests(unittest.TestCase):

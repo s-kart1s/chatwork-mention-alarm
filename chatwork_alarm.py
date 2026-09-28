@@ -28,6 +28,7 @@ DEFAULT_CONFIG = Path.home() / ".config" / APP_NAME / "config.json"
 DEFAULT_STATE = Path.home() / "Library" / "Application Support" / APP_NAME / "state.json"
 DEFAULT_LOG = Path.home() / "Library" / "Logs" / APP_NAME / "alarm.log"
 DEFAULT_SOUND = "/System/Library/Sounds/Sosumi.aiff"
+ALARM_SOUND_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -193,9 +194,15 @@ def load_room_names(
 
 
 class Alarm:
-    def __init__(self, sound_path: str, volume: float) -> None:
+    def __init__(
+        self,
+        sound_path: str,
+        volume: float,
+        sound_seconds: float = ALARM_SOUND_SECONDS,
+    ) -> None:
         self.sound_path = sound_path
         self.volume = volume
+        self.sound_seconds = sound_seconds
 
     def run(self, room_name: str, sender: str, message_url: str) -> None:
         title = "Chatwork 緊急メンション"
@@ -209,7 +216,8 @@ class Alarm:
         player: subprocess.Popen[bytes] | None = None
         try:
             dialog = subprocess.Popen(["/usr/bin/osascript", "-e", script])
-            while dialog.poll() is None:
+            sound_deadline = time.monotonic() + self.sound_seconds
+            while dialog.poll() is None and time.monotonic() < sound_deadline:
                 started_at = time.monotonic()
                 player = subprocess.Popen(
                     [
@@ -220,14 +228,19 @@ class Alarm:
                     ]
                 )
                 while player.poll() is None and dialog.poll() is None:
-                    time.sleep(0.2)
-                if dialog.poll() is not None and player.poll() is None:
-                    player.terminate()
-                    player.wait(timeout=2)
+                    remaining = sound_deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    time.sleep(min(0.2, remaining))
+                if player.poll() is None:
+                    terminate_process(player)
                 elif player.returncode:
                     raise RuntimeError(f"afplay exited with status {player.returncode}")
                 elif time.monotonic() - started_at < 0.1:
                     time.sleep(1)
+            if dialog.poll() is None:
+                logging.info("Siren stopped after %s seconds", self.sound_seconds)
+                dialog.wait()
             if dialog.returncode:
                 raise RuntimeError(f"osascript exited with status {dialog.returncode}")
         finally:
