@@ -233,7 +233,8 @@ class Alarm:
                         break
                     time.sleep(min(0.2, remaining))
                 if player.poll() is None:
-                    terminate_process(player)
+                    player.kill()
+                    player.wait()
                 elif player.returncode:
                     raise RuntimeError(f"afplay exited with status {player.returncode}")
                 elif time.monotonic() - started_at < 0.1:
