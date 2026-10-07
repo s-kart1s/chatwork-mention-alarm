@@ -95,18 +95,18 @@ else
   created_token=1
 fi
 
-"$python_bin" - "$temporary_config" "$room_ids" "$start_hour" "$end_hour" "$poll_seconds" <<'PY'
+"$python_bin" - "$temporary_config" "$room_ids" "$start_hour" "$end_hour" "$poll_seconds" "$app_dir/alarm.mp3" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-path, room_ids, start_hour, end_hour, poll_seconds = sys.argv[1:]
+path, room_ids, start_hour, end_hour, poll_seconds, sound_path = sys.argv[1:]
 config = {
     "room_ids": [int(value) for value in room_ids.split(",")],
     "start_hour": int(start_hour),
     "end_hour": int(end_hour),
     "poll_seconds": int(poll_seconds),
-    "sound_path": "/System/Library/Sounds/Sosumi.aiff",
+    "sound_path": sound_path,
     "sound_volume": 2.0,
 }
 Path(path).write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
@@ -129,6 +129,18 @@ if ! "$python_bin" "$app_dir/chatwork_alarm.py" \
 fi
 
 mkdir -p "$config_dir" "$runtime_dir" "$log_dir" "$HOME/Library/LaunchAgents"
+cp "$app_dir/alarm.mp3" "$runtime_dir/alarm.mp3"
+chmod 600 "$runtime_dir/alarm.mp3"
+"$python_bin" - "$temporary_config" "$runtime_dir/alarm.mp3" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+config = json.loads(path.read_text(encoding="utf-8"))
+config["sound_path"] = sys.argv[2]
+path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+PY
 cp "$temporary_config" "$config_dir/config.json"
 chmod 600 "$config_dir/config.json"
 cp "$app_dir/chatwork_alarm.py" "$runtime_dir/chatwork_alarm.py"

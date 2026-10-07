@@ -27,7 +27,7 @@ API_BASE = "https://api.chatwork.com/v2"
 DEFAULT_CONFIG = Path.home() / ".config" / APP_NAME / "config.json"
 DEFAULT_STATE = Path.home() / "Library" / "Application Support" / APP_NAME / "state.json"
 DEFAULT_LOG = Path.home() / "Library" / "Logs" / APP_NAME / "alarm.log"
-DEFAULT_SOUND = "/System/Library/Sounds/Sosumi.aiff"
+DEFAULT_SOUND = str(Path(__file__).resolve().with_name("alarm.mp3"))
 ALARM_SOUND_SECONDS = 60
 
 
